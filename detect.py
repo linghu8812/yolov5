@@ -1,6 +1,5 @@
 import argparse
 import os
-import platform
 import shutil
 import time
 from pathlib import Path
@@ -140,8 +139,6 @@ def detect(save_img=False):
 
     if save_txt or save_img:
         print('Results saved to %s' % Path(out))
-        if platform.system() == 'Darwin' and not opt.update:  # MacOS
-            os.system('open ' + save_path)
 
     print('Done. (%.3fs)' % (time.time() - t0))
 
