@@ -60,7 +60,7 @@ def init_seeds(seed=0):
     init_torch_seeds(seed)
 
 
-def get_latest_run(search_dir='./runs'):
+def get_latest_run(search_dir='.'):
     # Return path to most recent 'last.pt' in /runs (i.e. to --resume from)
     last_list = glob.glob(f'{search_dir}/**/last*.pt', recursive=True)
     return max(last_list, key=os.path.getctime) if last_list else ''
@@ -275,10 +275,10 @@ def ap_per_class(tp, conf, pred_cls, target_cls, plot=False, fname='precision-re
     ap, p, r = np.zeros(s), np.zeros(s), np.zeros(s)
     for ci, c in enumerate(unique_classes):
         i = pred_cls == c
-        n_gt = (target_cls == c).sum()  # Number of ground truth objects
-        n_p = i.sum()  # Number of predicted objects
+        n_l = (target_cls == c).sum()  # number of labels
+        n_p = i.sum()  # number of predictions
 
-        if n_p == 0 or n_gt == 0:
+        if n_p == 0 or n_l == 0:
             continue
         else:
             # Accumulate FPs and TPs
@@ -286,7 +286,7 @@ def ap_per_class(tp, conf, pred_cls, target_cls, plot=False, fname='precision-re
             tpc = tp[i].cumsum(0)
 
             # Recall
-            recall = tpc / (n_gt + 1e-16)  # recall curve
+            recall = tpc / (n_l + 1e-16)  # recall curve
             r[ci] = np.interp(-pr_score, -conf[i], recall[:, 0])  # r at pr_score, negative x, xp because xp decreases
 
             # Precision
@@ -951,17 +951,17 @@ def output_to_target(output, width, height):
     return np.array(targets)
 
 
-def increment_dir(dir, comment=''):
-    # Increments a directory runs/exp1 --> runs/exp2_comment
-    n = 0  # number
-    dir = str(Path(dir))  # os-agnostic
-    dirs = sorted(glob.glob(dir + '*'))  # directories
-    if dirs:
-        matches = [re.search(r"exp(\d+)", d) for d in dirs]
-        idxs = [int(m.groups()[0]) for m in matches if m]
-        if idxs:
-            n = max(idxs) + 1  # increment
-    return dir + str(n) + ('_' + comment if comment else '')
+def increment_path(path, exist_ok=True, sep=''):
+    # Increment path, i.e. runs/exp --> runs/exp{sep}0, runs/exp{sep}1 etc.
+    path = Path(path)  # os-agnostic
+    if (path.exists() and exist_ok) or (not path.exists()):
+        return str(path)
+    else:
+        dirs = glob.glob(f"{path}{sep}*")  # similar paths
+        matches = [re.search(rf"%s{sep}(\d+)" % path.stem, d) for d in dirs]
+        i = [int(m.groups()[0]) for m in matches if m]  # indices
+        n = max(i) + 1 if i else 2  # increment number
+        return f"{path}{sep}{n}"  # update path
 
 
 # Plotting functions ---------------------------------------------------------------------------------------------------
@@ -1070,8 +1070,8 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
             image_targets = targets[targets[:, 0] == i]
             boxes = xywh2xyxy(image_targets[:, 2:6]).T
             classes = image_targets[:, 1].astype('int')
-            gt = image_targets.shape[1] == 6  # ground truth if no conf column
-            conf = None if gt else image_targets[:, 6]  # check for confidence presence (gt vs pred)
+            labels = image_targets.shape[1] == 6  # labels if no conf column
+            conf = None if labels else image_targets[:, 6]  # check for confidence presence (label vs pred)
 
             boxes[[0, 2]] *= w
             boxes[[0, 2]] += block_x
@@ -1081,8 +1081,8 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
                 cls = int(classes[j])
                 color = color_lut[cls % len(color_lut)]
                 cls = names[cls] if names else cls
-                if gt or conf[j] > 0.3:  # 0.3 conf thresh
-                    label = '%s' % cls if gt else '%s %.1f' % (cls, conf[j])
+                if labels or conf[j] > 0.3:  # 0.3 conf thresh
+                    label = '%s' % cls if labels else '%s %.1f' % (cls, conf[j])
                     plot_one_box(box, mosaic, label=label, color=color, line_thickness=tl)
 
         # Draw image filename labels
@@ -1262,7 +1262,7 @@ def plot_results_overlay(start=0, stop=0):  # from utils.general import *; plot_
 
 
 def plot_results(start=0, stop=0, bucket='', id=(), labels=(), save_dir=''):
-    # from utils.general import *; plot_results(save_dir='runs/exp0')
+    # from utils.general import *; plot_results(save_dir='runs/train/exp0')
     # Plot training 'results*.txt' as seen in https://github.com/ultralytics/yolov5#reproduce-our-training
     fig, ax = plt.subplots(2, 5, figsize=(12, 6))
     ax = ax.ravel()

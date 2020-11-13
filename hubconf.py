@@ -6,7 +6,7 @@ Usage:
 """
 
 dependencies = ['torch', 'yaml']
-import os
+from pathlib import Path
 
 import torch
 
@@ -29,7 +29,7 @@ def create(name, pretrained, channels, classes):
     Returns:
         pytorch model
     """
-    config = os.path.join(os.path.dirname(__file__), 'models', f'{name}.yaml')  # model.yaml path
+    config = Path(__file__).parent / 'models' / f'{name}.yaml'  # model.yaml path
     try:
         model = Model(config, channels, classes)
         if pretrained:
@@ -113,6 +113,6 @@ if __name__ == '__main__':
     # Verify inference
     from PIL import Image
 
-    img = Image.open('inference/images/zidane.jpg')
+    img = Image.open('data/images/zidane.jpg')
     y = model(img)
     print(y[0].shape)
