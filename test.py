@@ -1,8 +1,8 @@
 import argparse
-import glob
 import json
 import os
 from pathlib import Path
+from threading import Thread
 
 import numpy as np
 import torch
@@ -11,9 +11,8 @@ from tqdm import tqdm
 
 from models.experimental import attempt_load
 from utils.datasets import create_dataloader
-from utils.general import coco80_to_coco91_class, check_dataset, check_file, check_img_size, box_iou, \
-    non_max_suppression, scale_coords, xyxy2xywh, xywh2xyxy, set_logging, increment_path
-from utils.loss import compute_loss
+from utils.general import coco80_to_coco91_class, check_dataset, check_file, check_img_size, check_requirements, \
+    box_iou, non_max_suppression, scale_coords, xyxy2xywh, xywh2xyxy, set_logging, increment_path, colorstr
 from utils.metrics import ap_per_class, ConfusionMatrix
 from utils.plots import plot_images, output_to_target, plot_study_txt
 from utils.torch_utils import select_device, time_synchronized
@@ -33,10 +32,11 @@ def test(data,
          dataloader=None,
          save_dir=Path(''),  # for saving images
          save_txt=False,  # for auto-labelling
-         save_conf=False,
+         save_hybrid=False,  # for hybrid auto-labelling
+         save_conf=False,  # save auto-label confidences
          plots=True,
-         log_imgs=0):  # number of logged images
-
+         log_imgs=0,  # number of logged images
+         compute_loss=None):
     # Initialize/load model and set device
     training = model is not None
     if training:  # called by train.py
@@ -45,7 +45,6 @@ def test(data,
     else:  # called directly
         set_logging()
         device = select_device(opt.device, batch_size=batch_size)
-        save_txt = opt.save_txt  # save *.txt labels
 
         # Directories
         save_dir = Path(increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok))  # increment run
@@ -68,7 +67,7 @@ def test(data,
     model.eval()
     is_coco = data.endswith('coco.yaml')  # is COCO dataset
     with open(data) as f:
-        data = yaml.load(f, Loader=yaml.FullLoader)  # model dict
+        data = yaml.load(f, Loader=yaml.SafeLoader)  # model dict
     check_dataset(data)  # check
     nc = 1 if single_cls else int(data['nc'])  # number of classes
     iouv = torch.linspace(0.5, 0.95, 10).to(device)  # iou vector for mAP@0.5:0.95
@@ -86,7 +85,8 @@ def test(data,
         img = torch.zeros((1, 3, imgsz, imgsz), device=device)  # init img
         _ = model(img.half() if half else img) if device.type != 'cpu' else None  # run once
         path = data['test'] if opt.task == 'test' else data['val']  # path to val/test images
-        dataloader = create_dataloader(path, imgsz, batch_size, model.stride.max(), opt, pad=0.5, rect=True)[0]
+        dataloader = create_dataloader(path, imgsz, batch_size, model.stride.max(), opt, pad=0.5, rect=True,
+                                       prefix=colorstr('test: ' if opt.task == 'test' else 'val: '))[0]
 
     seen = 0
     confusion_matrix = ConfusionMatrix(nc=nc)
@@ -110,12 +110,12 @@ def test(data,
             t0 += time_synchronized() - t
 
             # Compute loss
-            if training:
-                loss += compute_loss([x.float() for x in train_out], targets, model)[1][:3]  # box, obj, cls
+            if compute_loss:
+                loss += compute_loss([x.float() for x in train_out], targets)[1][:3]  # box, obj, cls
 
             # Run NMS
             targets[:, 2:] *= torch.Tensor([width, height, width, height]).to(device)  # to pixels
-            lb = [targets[targets[:, 0] == i, 1:] for i in range(nb)] if save_txt else []  # for autolabelling
+            lb = [targets[targets[:, 0] == i, 1:] for i in range(nb)] if save_hybrid else []  # for autolabelling
             t = time_synchronized()
             output = non_max_suppression(inf_out, conf_thres=conf_thres, iou_thres=iou_thres, labels=lb)
             t1 += time_synchronized() - t
@@ -206,10 +206,10 @@ def test(data,
 
         # Plot images
         if plots and batch_i < 3:
-            f = save_dir / f'test_batch{batch_i}_labels.jpg'  # filename
-            plot_images(img, targets, paths, f, names)  # labels
-            f = save_dir / f'test_batch{batch_i}_pred.jpg'
-            plot_images(img, output_to_target(output), paths, f, names)  # predictions
+            f = save_dir / f'test_batch{batch_i}_labels.jpg'  # labels
+            Thread(target=plot_images, args=(img, targets, paths, f, names), daemon=True).start()
+            f = save_dir / f'test_batch{batch_i}_pred.jpg'  # predictions
+            Thread(target=plot_images, args=(img, output_to_target(output), paths, f, names), daemon=True).start()
 
     # Compute statistics
     stats = [np.concatenate(x, 0) for x in zip(*stats)]  # to numpy
@@ -221,19 +221,12 @@ def test(data,
     else:
         nt = torch.zeros(1)
 
-    # Plots
-    if plots:
-        confusion_matrix.plot(save_dir=save_dir, names=list(names.values()))
-        if wandb and wandb.run:
-            wandb.log({"Images": wandb_images})
-            wandb.log({"Validation": [wandb.Image(str(f), caption=f.name) for f in sorted(save_dir.glob('test*.jpg'))]})
-
     # Print results
     pf = '%20s' + '%12.3g' * 6  # print format
     print(pf % ('all', seen, nt.sum(), mp, mr, map50, map))
 
     # Print results per class
-    if verbose and nc > 1 and len(stats):
+    if (verbose or (nc < 50 and not training)) and nc > 1 and len(stats):
         for i, c in enumerate(ap_class):
             print(pf % (names[c], seen, nt[c], p[i], r[i], ap50[i], ap[i]))
 
@@ -242,10 +235,17 @@ def test(data,
     if not training:
         print('Speed: %.1f/%.1f/%.1f ms inference/NMS/total per %gx%g image at batch-size %g' % t)
 
+    # Plots
+    if plots:
+        confusion_matrix.plot(save_dir=save_dir, names=list(names.values()))
+        if wandb and wandb.run:
+            wandb.log({"Images": wandb_images})
+            wandb.log({"Validation": [wandb.Image(str(f), caption=f.name) for f in sorted(save_dir.glob('test*.jpg'))]})
+
     # Save JSON
     if save_json and len(jdict):
         w = Path(weights[0] if isinstance(weights, list) else weights).stem if weights is not None else ''  # weights
-        anno_json = glob.glob('../coco/annotations/instances_val*.json')[0]  # annotations json
+        anno_json = '../coco/annotations/instances_val2017.json'  # annotations json
         pred_json = str(save_dir / f"{w}_predictions.json")  # predictions json
         print('\nEvaluating pycocotools mAP... saving %s...' % pred_json)
         with open(pred_json, 'w') as f:
@@ -265,7 +265,7 @@ def test(data,
             eval.summarize()
             map, map50 = eval.stats[:2]  # update results (mAP@0.5:0.95, mAP@0.5)
         except Exception as e:
-            print('ERROR: pycocotools unable to run: %s' % e)
+            print(f'pycocotools unable to run: {e}')
 
     # Return results
     if not training:
@@ -292,6 +292,7 @@ if __name__ == '__main__':
     parser.add_argument('--augment', action='store_true', help='augmented inference')
     parser.add_argument('--verbose', action='store_true', help='report mAP by class')
     parser.add_argument('--save-txt', action='store_true', help='save results to *.txt')
+    parser.add_argument('--save-hybrid', action='store_true', help='save label+prediction hybrid results to *.txt')
     parser.add_argument('--save-conf', action='store_true', help='save confidences in --save-txt labels')
     parser.add_argument('--save-json', action='store_true', help='save a cocoapi-compatible JSON results file')
     parser.add_argument('--project', default='runs/test', help='save to project/name')
@@ -301,6 +302,7 @@ if __name__ == '__main__':
     opt.save_json |= opt.data.endswith('coco.yaml')
     opt.data = check_file(opt.data)  # check file
     print(opt)
+    check_requirements()
 
     if opt.task in ['val', 'test']:  # run normally
         test(opt.data,
@@ -313,7 +315,8 @@ if __name__ == '__main__':
              opt.single_cls,
              opt.augment,
              opt.verbose,
-             save_txt=opt.save_txt,
+             save_txt=opt.save_txt | opt.save_hybrid,
+             save_hybrid=opt.save_hybrid,
              save_conf=opt.save_conf,
              )
 
