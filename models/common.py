@@ -17,6 +17,7 @@ import torch.nn as nn
 from PIL import Image
 from torch.cuda import amp
 
+from models.dcn import DeformableConv2d
 from utils.datasets import exif_transpose, letterbox
 from utils.general import colorstr, increment_path, make_divisible, non_max_suppression, save_one_box, \
     scale_coords, xyxy2xywh
@@ -46,6 +47,13 @@ class Conv(nn.Module):
 
     def forward_fuse(self, x):
         return self.act(self.conv(x))
+
+
+class DCN(Conv):
+    # Standard convolution
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1):  # ch_in, ch_out, kernel, stride, padding, groups
+        super().__init__(c1, c2, k=1, s=1, p=None, g=1)
+        self.conv = DeformableConv2d(c1, c2, k, s, autopad(k, p), bias=False)
 
 
 class DWConv(Conv):
@@ -143,6 +151,16 @@ class C3TR(C3):
         super().__init__(c1, c2, n, shortcut, g, e)
         c_ = int(c2 * e)
         self.m = TransformerBlock(c_, c_, 4, n)
+
+
+class C3DCN(C3):
+    # CSP Bottleneck with 3 convolutions
+    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
+        super().__init__(c1, c2, n, shortcut, g, e)
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = DCN(c1, c_, 1, 1)
+        self.cv2 = DCN(c1, c_, 1, 1)
+        self.cv3 = DCN(2 * c_, c2, 1)  # act=FReLU(c2)
 
 
 class C3SPP(C3):

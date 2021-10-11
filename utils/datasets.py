@@ -26,7 +26,7 @@ from PIL import Image, ExifTags
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
-from utils.augmentations import Albumentations, augment_hsv, copy_paste, letterbox, mixup, random_perspective
+from utils.augmentations import Albumentations, augment_hsv, copy_paste, letterbox, mixup, random_perspective, cutout
 from utils.general import check_dataset, check_requirements, check_yaml, clean_str, segments2boxes, \
     xywh2xyxy, xywhn2xyxy, xyxy2xywhn, xyn2xy
 from utils.torch_utils import torch_distributed_zero_first
@@ -598,8 +598,22 @@ class LoadImagesAndLabels(Dataset):
                 if nl:
                     labels[:, 1] = 1 - labels[:, 1]
 
+            # Rotate 90 degree
+            if 'rot90' in hyp and random.random() < hyp['rot90']:
+                p = random.random()
+                k = 1 if p < 0.5 else 3
+                img = np.rot90(img, k)
+                if nl:
+                    labels[:, [1, 2]] = labels[:, [2, 1]]
+                    if p < 0.5:
+                        labels[:, 2] = 1 - labels[:, 2]
+                    else:
+                        labels[:, 1] = 1 - labels[:, 1]
+                    labels[:, [3, 4]] = labels[:, [4, 3]]
+
             # Cutouts
-            # labels = cutout(img, labels, p=0.5)
+            labels = cutout(img, labels, p=hyp['cutout'] if 'cutout' in hyp else 0)
+            nl = len(labels)  # number of labels
 
         labels_out = torch.zeros((nl, 6))
         if nl:

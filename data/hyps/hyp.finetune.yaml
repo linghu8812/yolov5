@@ -34,6 +34,8 @@ shear: 0.602
 perspective: 0.0
 flipud: 0.00856
 fliplr: 0.5
+rot90: 0.0  # image rot 90 degree (probability)
+cutout: 0.5  # image cutout (probability)
 mosaic: 1.0
 mixup: 0.243
 copy_paste: 0.0
