@@ -2,7 +2,7 @@
 # COCO 2017 dataset http://cocodataset.org
 # Download command: bash data/scripts/get_coco.sh
 # Train command: python train.py --data coco.yaml
-# Default dataset location is next to /yolov5:
+# Default dataset location is next to YOLOv5:
 #   /parent_folder
 #     /coco
 #     /yolov5
@@ -10,7 +10,7 @@
 # Download/unzip labels
 d='../' # unzip directory
 url=https://github.com/ultralytics/yolov5/releases/download/v1.0/
-f='coco2017labels.zip' # 68 MB
+f='coco2017labels.zip' # or 'coco2017labels-segments.zip', 68 MB
 echo 'Downloading' $url$f ' ...'
 curl -L $url$f -o $f && unzip -q $f -d $d && rm $f & # download, unzip, remove in background
 
