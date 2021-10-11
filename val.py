@@ -133,7 +133,7 @@ def run(data,
         data = check_dataset(data)  # check
 
     # Half
-    half &= device.type != 'cpu'  # half precision only supported on CUDA
+    half &= False  # half precision only supported on CUDA
     model.half() if half else model.float()
 
     # Configure
