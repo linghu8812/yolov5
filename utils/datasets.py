@@ -26,7 +26,8 @@ from PIL import Image, ExifTags
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
-from utils.augmentations import Albumentations, augment_hsv, copy_paste, letterbox, mixup, random_perspective, cutout
+from utils.augmentations import Albumentations, augment_hsv, copy_paste, letterbox, mixup, random_perspective, cutout, \
+    copy_and_paste
 from utils.general import check_dataset, check_requirements, check_yaml, clean_str, segments2boxes, \
     xywh2xyxy, xywhn2xyxy, xyxy2xywhn, xyn2xy
 from utils.torch_utils import torch_distributed_zero_first
@@ -433,6 +434,8 @@ class LoadImagesAndLabels(Dataset):
         # Read cache
         [cache.pop(k) for k in ('hash', 'version', 'msgs')]  # remove items
         labels, shapes, self.segments = zip(*cache.values())
+        class_count = np.histogram(np.concatenate(labels)[:, 0], bins=int(np.concatenate(labels)[:, 0].max()+1))[0]
+        self.less_class = [i[0] for i in enumerate(class_count < np.mean(class_count)) if i[1]]
         self.labels = list(labels)
         self.shapes = np.array(shapes, dtype=np.float64)
         self.img_files = list(cache.keys())  # update
@@ -613,6 +616,8 @@ class LoadImagesAndLabels(Dataset):
 
             # Cutouts
             labels = cutout(img, labels, p=hyp['cutout'] if 'cutout' in hyp else 0)
+            if random.random() < hyp['copy_paste']:
+                labels = copy_and_paste(img, labels, self.less_class)
             nl = len(labels)  # number of labels
 
         labels_out = torch.zeros((nl, 6))

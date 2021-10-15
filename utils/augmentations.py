@@ -256,9 +256,55 @@ def cutout(im, labels, p=0.5):
             # return unobscured labels
             if len(labels) and s > 0.03:
                 box = np.array([xmin, ymin, xmax, ymax], dtype=np.float32)
-                ioa = bbox_ioa(box, labels[:, 1:5])  # intersection over area
+                label_boxes = labels[:, 1:5].copy()
+                label_boxes[:, 0:4:2] *= w
+                label_boxes[:, 1:5:2] *= h
+                x1 = (label_boxes[:, 0] - label_boxes[:, 2] / 2)[:, None]
+                y1 = (label_boxes[:, 1] - label_boxes[:, 3] / 2)[:, None]
+                x2 = (label_boxes[:, 0] + label_boxes[:, 2] / 2)[:, None]
+                y2 = (label_boxes[:, 1] + label_boxes[:, 3] / 2)[:, None]
+                label_boxes = np.concatenate([x1, y1, x2, y2], axis=1)
+                ioa = bbox_ioa(box, label_boxes)  # intersection over area
                 labels = labels[ioa < 0.60]  # remove >60% obscured labels
 
+    return labels
+
+
+def copy_and_paste(im, labels, less_class):
+    h, w = im.shape[:2]
+    pad_labels = np.array(list(filter(lambda x: x[0] in less_class, labels)))
+    if len(pad_labels) > 0:
+        pad_labels[:, 1:5:2] *= w
+        pad_labels[:, 2:6:2] *= h
+        x1 = (pad_labels[:, 1] - pad_labels[:, 3] / 2)[:, None]
+        y1 = (pad_labels[:, 2] - pad_labels[:, 4] / 2)[:, None]
+        x2 = (pad_labels[:, 1] + pad_labels[:, 3] / 2)[:, None]
+        y2 = (pad_labels[:, 2] + pad_labels[:, 4] / 2)[:, None]
+        keep = (x1 > w // 20) & (y1 > h // 20) & (x2 < w * 0.95) & (y2 < h * 0.95)
+        pad_labels = np.concatenate([pad_labels[:, 0][:, None], x1, y1, x2, y2], axis=1)[np.where(keep.squeeze())]
+        for pad_label in pad_labels:
+            bw, bh = pad_label[3] - pad_label[1], pad_label[4] - pad_label[2]
+            xmin = int(max(0, pad_label[1] - bw * 0.1))
+            ymin = int(max(0, pad_label[2] - bh * 0.1))
+            xmax = int(min(w, pad_label[3] + bw * 0.1))
+            ymax = int(min(h, pad_label[4] + bh * 0.1))
+            start_x, start_y = random.randint(0, int(w - bw * 1.2)), random.randint(0, int(h - bh * 1.2))
+            end_x, end_y = start_x + xmax - xmin, start_y + ymax - ymin
+            box = np.array([start_x, start_y, end_x, end_y], dtype=np.float32)
+            label_boxes = labels[:, 1:5].copy()
+            label_boxes[:, 0:4:2] *= w
+            label_boxes[:, 1:5:2] *= h
+            x1 = (label_boxes[:, 0] - label_boxes[:, 2] / 2)[:, None]
+            y1 = (label_boxes[:, 1] - label_boxes[:, 3] / 2)[:, None]
+            x2 = (label_boxes[:, 0] + label_boxes[:, 2] / 2)[:, None]
+            y2 = (label_boxes[:, 1] + label_boxes[:, 3] / 2)[:, None]
+            label_boxes = np.concatenate([x1, y1, x2, y2], axis=1)
+            ioa = bbox_ioa(box, label_boxes)  # intersection over area
+            if max(ioa) == 0:
+                im[start_y:end_y, start_x:end_x] = im[ymin:ymax, xmin:xmax]
+                c, xc, yc = pad_label[0], (start_x + end_x) / (2*w), (start_y + end_y) / (2*h)
+                wc, hc = (end_x - start_x) / (w*1.2), (end_y - start_y) / (h*1.2)
+                labels = np.concatenate([labels, np.array([[c, xc, yc, wc, hc]])])
     return labels
 
 
