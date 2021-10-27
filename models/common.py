@@ -295,7 +295,7 @@ class AutoShape(nn.Module):
     # YOLOv5 input-robust model wrapper for passing cv2/np/PIL/torch inputs. Includes preprocessing, inference and NMS
     conf = 0.25  # NMS confidence threshold
     iou = 0.45  # NMS IoU threshold
-    classes = None  # (optional list) filter by class
+    classes = None  # (optional list) filter by class, i.e. = [0, 15, 16] for COCO persons, cats and dogs
     multi_label = False  # NMS multiple labels per box
     max_det = 1000  # maximum number of detections per image
 
@@ -313,6 +313,8 @@ class AutoShape(nn.Module):
         m = self.model.model[-1]  # Detect()
         m.stride = fn(m.stride)
         m.grid = list(map(fn, m.grid))
+        if isinstance(m.anchor_grid, list):
+            m.anchor_grid = list(map(fn, m.anchor_grid))
         return self
 
     @torch.no_grad()
