@@ -389,7 +389,7 @@ class LoadImagesAndLabels(Dataset):
         self.mosaic_border = [-img_size // 2, -img_size // 2]
         self.stride = stride
         self.path = path
-        self.albumentations = Albumentations() if augment else None
+        self.albumentations = Albumentations(self.hyp) if augment else None
 
         try:
             f = []  # image files

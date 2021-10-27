@@ -16,13 +16,15 @@ from utils.metrics import bbox_ioa
 
 class Albumentations:
     # YOLOv5 Albumentations class (optional, only used if package is installed)
-    def __init__(self):
+    def __init__(self, hyp=None):
         self.transform = None
         try:
             import albumentations as A
             check_version(A.__version__, '1.0.3')  # version requirement
 
             self.transform = A.Compose([
+                A.ChannelShuffle(p=hyp['channel_shuffle'] if 'channel_shuffle' in hyp else 0),
+                A.InvertImg(p=hyp['invert_img'] if 'invert_img' in hyp else 0),
                 A.Blur(p=0.01),
                 A.MedianBlur(p=0.01),
                 A.ToGray(p=0.01),
