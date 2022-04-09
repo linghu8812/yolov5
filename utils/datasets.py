@@ -656,15 +656,10 @@ class LoadImagesAndLabels(Dataset):
                     labels[:, [3, 4]] = labels[:, [4, 3]]
 
             # Cutouts
-<<<<<<< HEAD
             labels = cutout(img, labels, p=hyp['cutout'] if 'cutout' in hyp else 0)
             if random.random() < hyp['copy_paste']:
                 labels = copy_and_paste(img, labels, self.less_class)
             nl = len(labels)  # number of labels
-=======
-            # labels = cutout(img, labels, p=0.5)
-            # nl = len(labels)  # update after cutout
->>>>>>> upstream/master
 
         labels_out = torch.zeros((nl, 6))
         if nl:
