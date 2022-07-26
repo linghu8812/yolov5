@@ -44,7 +44,7 @@ def _create(name, pretrained=True, channels=3, classes=80, autoshape=True, verbo
         device = select_device(device)
 
         if pretrained and channels == 3 and classes == 80:
-            model = DetectMultiBackend(path, device=device)  # download/load FP32 model
+            model = DetectMultiBackend(path, device=device, fuse=autoshape)  # download/load FP32 model
             # model = models.experimental.attempt_load(path, map_location=device)  # download/load FP32 model
         else:
             cfg = list((Path(__file__).parent / 'models').rglob(f'{path.stem}.yaml'))[0]  # model.yaml path
@@ -58,6 +58,8 @@ def _create(name, pretrained=True, channels=3, classes=80, autoshape=True, verbo
                     model.names = ckpt['model'].names  # set class names attribute
         if autoshape:
             model = AutoShape(model)  # for file/URI/PIL/cv2/np inputs and NMS
+        if not verbose:
+            LOGGER.setLevel(logging.INFO)  # reset to default
         return model.to(device)
 
     except Exception as e:
